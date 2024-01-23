@@ -4,12 +4,15 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
 import pandas as pd
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 from selenium import webdriver
+from selenium.common import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium_stealth import stealth
+
+load_dotenv()
 
 """
 List of countries url.
@@ -69,13 +72,16 @@ def search_jobs(driver, country, job_position, job_location, date_posted):
     full_url = f'{country}/jobs?q={"+".join(job_position.split())}&l={job_location}&fromage={date_posted}'
     print(full_url)
     driver.get(full_url)
-
-    job_count_element = driver.find_element(By.XPATH,
-                                            '//div[starts-with(@class, "jobsearch-JobCountAndSortPane-jobCount")]')
-    if job_count_element:
-        global total_jobs
+    global total_jobs
+    try:
+        job_count_element = driver.find_element(By.XPATH,
+                                                '//div[starts-with(@class, "jobsearch-JobCountAndSortPane-jobCount")]')
         total_jobs = job_count_element.find_element(By.XPATH, './span').text
         print(f"{total_jobs} found")
+    except NoSuchElementException:
+        print("No job count found")
+        total_jobs = "Unknown"
+
     driver.save_screenshot('screenshot.png')
     return full_url
 
@@ -84,7 +90,9 @@ def scrape_job_data(driver, country):
     df = pd.DataFrame({'Link': [''], 'Job Title': [''], 'Company': [''],
                        'Date Posted': [''], 'Location': ['']})
     job_count = 0
-    while True:
+    count = 0
+    while count < 2:
+        count += 1
         soup = BeautifulSoup(driver.page_source, 'lxml')
 
         boxes = soup.find_all('div', class_='job_seen_beacon')
@@ -136,6 +144,7 @@ def clean_data(df):
         x = x.replace('PostedPosted', '').strip()
         x = x.replace('EmployerActive', '').strip()
         x = x.replace('PostedToday', '0').strip()
+        x = x.replace('PostedJust posted', '0').strip()
         x = x.replace('today', '0').strip()
 
         return x
@@ -184,9 +193,10 @@ def save_csv(df, job_position, job_location):
     return csv_file
 
 
-def send_email(df, receiver_email, job_position, job_location):
-    sender = 'sender@gmail.com'
+def send_email(df, sender_email, receiver_email, job_position, job_location, password):
+    sender = sender_email
     receiver = receiver_email
+    password = password
     msg = MIMEMultipart()
     msg['Subject'] = 'New Jobs from Indeed'
     msg['From'] = sender
@@ -203,15 +213,17 @@ def send_email(df, receiver_email, job_position, job_location):
     msg.attach(part)
 
     s = smtplib.SMTP_SSL(host='smtp.gmail.com', port=465)
-    s.login(user=sender, password='123456')
+    s.login(user=sender, password=password)
 
     s.sendmail(sender, receiver, msg.as_string())
 
     s.quit()
 
 
-def send_email_empty(sender, receiver_email, subject, body):
+def send_email_empty(sender, receiver_email, subject, body, password):
     msg = MIMEMultipart()
+    password = password
+
     msg['Subject'] = subject
     msg['From'] = sender
     msg['To'] = ','.join(receiver_email)
@@ -220,7 +232,7 @@ def send_email_empty(sender, receiver_email, subject, body):
     msg.attach(MIMEText(body, 'plain'))
 
     s = smtplib.SMTP_SSL(host='smtp.gmail.com', port=465)
-    s.login(user=sender, password='123456')
+    s.login(user=sender, password=password)
 
     s.sendmail(sender, receiver_email, msg.as_string())
 
@@ -235,8 +247,10 @@ def generate_attachment_filename(job_title, job_location):
 def main():
     driver = configure_webdriver()
     country = united_states
-    receiver_email = 'receiver@gmail.com'
-    job_position = 'content writer'
+    sender_email = os.getenv("SENDER_EMAIL")
+    receiver_email = os.getenv("RECEIVER_EMAIL")
+    password = os.getenv("PASSWORD")
+    job_position = 'social media manager'
     job_location = 'remote'
     date_posted = 7
 
@@ -248,7 +262,6 @@ def main():
 
         if df.shape[0] == 1:
             print("No results found. Something went wrong.")
-            sender = 'sender@gmail.com'
             subject = 'No Jobs Found on Indeed'
             body = """
             No jobs were found for the given search criteria.
@@ -262,7 +275,7 @@ def main():
             Link {}
             """.format(full_url)
 
-            send_email_empty(sender, receiver_email, subject, body)
+            send_email_empty(sender_email, receiver_email, subject, body, password)
         else:
             cleaned_df = clean_data(df)
             sorted_df = sort_data(cleaned_df)
@@ -270,7 +283,7 @@ def main():
     finally:
         try:
             if sorted_df is not None:
-                send_email(sorted_df, receiver_email, job_position, job_location)
+                send_email(sorted_df, sender_email, receiver_email, job_position, job_location, password)
         except Exception as e:
             print(f"Error sending email: {e}")
         finally:
