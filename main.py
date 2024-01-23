@@ -9,8 +9,6 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium_stealth import stealth
 
 """
@@ -42,7 +40,9 @@ egypt = 'https://eg.indeed.com'
 thailand = 'https://th.indeed.com'
 vietnam = 'https://vn.indeed.com'
 argentina = 'https://ar.indeed.com'
-ireland = 'https://ie.indeed.com '
+ireland = 'https://ie.indeed.com'
+
+global total_jobs
 
 
 def configure_webdriver():
@@ -65,30 +65,25 @@ def configure_webdriver():
     return driver
 
 
-def search_jobs(driver, country, job_position, job_location):
-    if country == united_states:
-        full_url = f'https://www.indeed.com/q-' + "-".join(job_position.split()) + '-jobs' + '.html'
-        driver.get(full_url)
-        input_city = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
-            (By.XPATH, "//input[@id='text-input-where' and contains(@placeholder, 'City, state, zip code')]")))
+def search_jobs(driver, country, job_position, job_location, date_posted):
+    full_url = f'{country}/jobs?q={"+".join(job_position.split())}&l={job_location}&fromage={date_posted}'
+    print(full_url)
+    driver.get(full_url)
 
-        input_city.send_keys(job_location)
-        driver.find_element(By.XPATH,
-                            "//div[@class='css-169igj0 eu4oa1w0']//button[@class='yosegi-InlineWhatWhere-primaryButton']").click()
-        driver.save_screenshot('screenshot.png')
-
-    else:
-        # Modify the else block to construct the full URL based on the country, job position, and job location
-        full_url = f'{country}/jobs?q={"+".join(job_position.split())}&l={job_location}'
-        driver.get(full_url)
-        driver.save_screenshot('screenshot.png')
-
+    job_count_element = driver.find_element(By.XPATH,
+                                            '//div[starts-with(@class, "jobsearch-JobCountAndSortPane-jobCount")]')
+    if job_count_element:
+        global total_jobs
+        total_jobs = job_count_element.find_element(By.XPATH, './span').text
+        print(f"{total_jobs} found")
+    driver.save_screenshot('screenshot.png')
     return full_url
 
 
 def scrape_job_data(driver, country):
     df = pd.DataFrame({'Link': [''], 'Job Title': [''], 'Company': [''],
                        'Date Posted': [''], 'Location': ['']})
+    job_count = 0
     while True:
         soup = BeautifulSoup(driver.page_source, 'lxml')
 
@@ -99,21 +94,33 @@ def scrape_job_data(driver, country):
             link_full = country + link
             job_title = i.find('a', class_='jcs-JobTitle css-jspxzf eu4oa1w0').text
             # Check if the 'Company' attribute exists
-            company_tag = i.find('span', class_='css-1x7z1ps eu4oa1w0')
+            company_tag = i.find('span', {'data-testid': 'company-name'})
             company = company_tag.text if company_tag else None
 
             date_posted = i.find('span', class_='date').text
-            location = i.find('div', class_='css-t4u72d eu4oa1w0').text
+            location_element = i.find('div', {'data-testid': 'text-location'})
+            location = ''
+            if location_element:
+                # Check if the element contains a span
+                span_element = location_element.find('span')
+
+                if span_element:
+                    location = span_element.text
+                else:
+                    location = location_element.text
+
             new_data = pd.DataFrame({'Link': [link_full], 'Job Title': [job_title],
                                      'Company': [company],
                                      'Date Posted': [date_posted],
                                      'Location': [location]})
 
             df = pd.concat([df, new_data], ignore_index=True)
+            job_count += 1
+
+        print(f"Scraped {job_count} of {total_jobs}")
 
         try:
             next_page = soup.find('a', {'aria-label': 'Next Page'}).get('href')
-            # next_page
 
             next_page = country + next_page
             driver.get(next_page)
@@ -229,13 +236,14 @@ def main():
     driver = configure_webdriver()
     country = united_states
     receiver_email = 'receiver@gmail.com'
-    job_position = 'customer service'
+    job_position = 'content writer'
     job_location = 'remote'
+    date_posted = 7
 
     sorted_df = None
 
     try:
-        full_url = search_jobs(driver, country, job_position, job_location)
+        full_url = search_jobs(driver, country, job_position, job_location, date_posted)
         df = scrape_job_data(driver, country)
 
         if df.shape[0] == 1:
@@ -243,14 +251,14 @@ def main():
             sender = 'sender@gmail.com'
             subject = 'No Jobs Found on Indeed'
             body = """
-            No jobs were found for the given search criteria. 
+            No jobs were found for the given search criteria.
             Please consider the following:
             1. Try adjusting your search criteria.
-            2. If you used English search keywords for non-English speaking countries, 
+            2. If you used English search keywords for non-English speaking countries,
                it might return an empty result. Consider using keywords in the country's language.
             3. Try more general keyword(s), check your spelling or replace abbreviations with the entire word
 
-            Feel free to try a manual search with this link and see for yourself: 
+            Feel free to try a manual search with this link and see for yourself:
             Link {}
             """.format(full_url)
 
@@ -266,6 +274,7 @@ def main():
         except Exception as e:
             print(f"Error sending email: {e}")
         finally:
+            pass
             driver.quit()
 
 
