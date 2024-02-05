@@ -11,6 +11,9 @@ from selenium import webdriver
 from selenium.common import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium_stealth import stealth
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 global total_jobs
 
@@ -21,8 +24,7 @@ def configure_webdriver():
     options.add_argument("start-maximized")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-
-    driver = webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
     stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -72,7 +74,11 @@ def scrape_job_data(driver, country):
             company_tag = i.find('span', {'data-testid': 'company-name'})
             company = company_tag.text if company_tag else None
 
-            date_posted = i.find('span', class_='date').text
+            try:
+                date_posted = i.find('span', class_='date').text
+            except AttributeError:
+                date_posted = i.find('span', {'data-testid': 'myJobsStateDate'}).text.strip()
+
             location_element = i.find('div', {'data-testid': 'text-location'})
             location = ''
             if location_element:
