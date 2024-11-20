@@ -57,7 +57,7 @@ def search_jobs(driver, country, job_position, job_location, date_posted):
 
 def scrape_job_data(driver, country):
     df = pd.DataFrame({'Link': [''], 'Job Title': [''], 'Company': [''],
-                       'Date Posted': [''], 'Location': ['']})
+                       'Employer Active': [''], 'Location': ['']})
     job_count = 0
     # count = 0
     while True:
@@ -67,32 +67,65 @@ def scrape_job_data(driver, country):
         boxes = soup.find_all('div', class_='job_seen_beacon')
 
         for i in boxes:
-            link = i.find('a').get('href')
-            link_full = country + link
-            job_title = i.find('a', class_='jcs-JobTitle css-jspxzf eu4oa1w0').text
-            # Check if the 'Company' attribute exists
-            company_tag = i.find('span', {'data-testid': 'company-name'})
-            company = company_tag.text if company_tag else None
+            try:
+                link = i.find('a', {'data-jk': True}).get('href')
+                link_full = country + link
+            except (AttributeError, TypeError):
+                try:
+                    link = i.find('a', class_=lambda x: x and 'JobTitle' in x).get('href')
+                    link_full = country + link
+                except (AttributeError, TypeError):
+                    link_full = None
 
             try:
-                date_posted = i.find('span', class_='date').text
+                job_title = i.find('a', class_=lambda x: x and 'JobTitle' in x).text.strip()
             except AttributeError:
-                date_posted = i.find('span', {'data-testid': 'myJobsStateDate'}).text.strip()
+                try:
+                    job_title = i.find('span', id=lambda x: x and 'jobTitle-' in str(x)).text.strip()
+                except AttributeError:
+                    job_title = None
 
-            location_element = i.find('div', {'data-testid': 'text-location'})
-            location = ''
-            if location_element:
-                # Check if the element contains a span
-                span_element = location_element.find('span')
+            try:
+                company = i.find('span', {'data-testid': 'company-name'}).text.strip()
+            except AttributeError:
+                try:
+                    company = i.find('span', class_=lambda x: x and 'company' in str(x).lower()).text.strip()
+                except AttributeError:
+                    company = None
 
-                if span_element:
-                    location = span_element.text
+            try:
+                employer_active = i.find('span', class_='date').text.strip()
+            except AttributeError:
+                try:
+                    employer_active = i.find('span', {'data-testid': 'myJobsStateDate'}).text.strip()
+                except AttributeError:
+                    employer_active = None
+
+            try:
+                location_element = i.find('div', {'data-testid': 'text-location'})
+                if location_element:
+                    try:
+                        location = location_element.find('span').text.strip()
+                    except AttributeError:
+                        location = location_element.text.strip()
                 else:
-                    location = location_element.text
+                    raise AttributeError
+            except AttributeError:
+                try:
+                    location_element = i.find('div', class_=lambda x: x and 'location' in str(x).lower())
+                    if location_element:
+                        try:
+                            location = location_element.find('span').text.strip()
+                        except AttributeError:
+                            location = location_element.text.strip()
+                    else:
+                        location = ''
+                except AttributeError:
+                    location = ''
 
             new_data = pd.DataFrame({'Link': [link_full], 'Job Title': [job_title],
                                      'Company': [company],
-                                     'Date Posted': [date_posted],
+                                     'Employer Active': [employer_active],
                                      'Location': [location]})
 
             df = pd.concat([df, new_data], ignore_index=True)
@@ -114,42 +147,12 @@ def scrape_job_data(driver, country):
 
 def clean_data(df):
     def posted(x):
-        x = x.replace('PostedPosted', '').strip()
-        x = x.replace('EmployerActive', '').strip()
-        x = x.replace('PostedToday', '0').strip()
-        x = x.replace('PostedJust posted', '0').strip()
-        x = x.replace('today', '0').strip()
-
-        return x
-
-    def day(x):
-        x = x.replace('days ago', '').strip()
-        x = x.replace('day ago', '').strip()
-        return x
-
-    def plus(x):
-        x = x.replace('+', '').strip()
-        return x
-
-    df['Date Posted'] = df['Date Posted'].apply(posted)
-    df['Date Posted'] = df['Date Posted'].apply(day)
-    df['Date Posted'] = df['Date Posted'].apply(plus)
-
-    return df
-
-
-def sort_data(df):
-    def convert_to_integer(x):
         try:
-            return int(x)
-        except ValueError:
-            return float('inf')
-
-    df['Date_num'] = df['Date Posted'].apply(lambda x: x[:2].strip())
-    df['Date_num2'] = df['Date_num'].apply(convert_to_integer)
-    df.sort_values(by=['Date_num2'], inplace=True)
-
-    df = df[['Link', 'Job Title', 'Company', 'Date Posted', 'Location']]
+            x = x.replace('EmployerActive', '').strip()
+            return x
+        except AttributeError:
+            pass
+    df['Employer Active'] = df['Employer Active'].apply(posted)
     return df
 
 

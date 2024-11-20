@@ -37,15 +37,15 @@ ireland = 'https://ie.indeed.com'
 
 def main():
     driver = configure_webdriver()
-    country = united_states
+    country = india
     sender_email = os.getenv("SENDER_EMAIL")
     receiver_email = os.getenv("RECEIVER_EMAIL")
     password = os.getenv("PASSWORD")
-    job_position = ''
+    job_position = 'web developer'
     job_location = 'remote'
-    date_posted = 10
+    date_posted = 20
 
-    sorted_df = None
+    cleaned_df = None
 
     try:
         full_url = search_jobs(driver, country, job_position, job_location, date_posted)
@@ -69,12 +69,10 @@ def main():
             send_email_empty(sender_email, receiver_email, subject, body, password)
         else:
             cleaned_df = clean_data(df)
-            sorted_df = sort_data(cleaned_df)
-            # csv_file = save_csv(sorted_df, job_position, job_location)
+            # csv_file = save_csv(cleaned_df, job_position, job_location)
     finally:
         try:
-            if sorted_df is not None:
-                send_email(sorted_df, sender_email, receiver_email, job_position, job_location, password)
+            send_email(cleaned_df, sender_email, receiver_email, job_position, job_location, password)
         except Exception as e:
             print(f"Error sending email: {e}")
         finally:
